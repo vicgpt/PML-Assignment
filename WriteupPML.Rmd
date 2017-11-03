@@ -1,0 +1,170 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Vishal Gupta"
+date: "11/2/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## BACKGROUND
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+## GOAL
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions:
+1. exactly according to the specification (Class A) 
+2. throwing the elbows to the front (Class B)
+3. lifting the dumbbell only halfway (Class C)
+4. lowering the dumbbell only halfway (Class D)
+5. throwing the hips to the front (Class E).
+
+The goal of the project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. 
+
+
+## LOADING DATA AND LIBRARIES
+Loading the dataset containing training and test dataset
+
+```{r load}
+# Loading packages
+library(caret)
+library(randomForest)
+library(rpart.plot)
+
+# loading training and resting datasets
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!","NULL",""))
+testing <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!","NULL",""))
+```
+
+## CLEANING DATA
+Dataset can contain a lot of NAs, so first the number of NA values in each column of training is identified and then those column which have more than 50% of entires as NA have been removed. By doing it all the NA values have been removed from the dataset. Those column are also removed from the test dataset. 
+
+```{r cleaning}
+# Checking and removing columns where more than 50% of the data is NA
+na_count= sapply(training,function(x) sum(is.na(x)))
+training = training[,na_count < 0.5*nrow(training)]
+
+# Removing the same column from the test dataset 
+testing = testing[,na_count < 0.5*nrow(training)]
+
+# Removing column "X" and  as it contains row index only
+training = subset(training,select = -X)
+testing = subset(testing,select = -X)
+```
+
+The training set is divided into train and cross-validation dataset in 70:30 ratio
+```{r subset}
+# Creating train and cross-validation set in training dataset
+set.seed(123)
+samp = createDataPartition(y=training$classe,p=0.7, list=FALSE)
+inTrain = training[samp,]
+inTest = training[-samp,]
+```
+
+## MODELLING
+Different model that will be used to train data and then predict on cross validation set are-
+1. Decision trees
+2. Bootstrap Aggregating (Bagging)
+3. Random Forest
+4. Boosting
+
+The best model out of these will be used for predicting on final test dataset containing 20 observations.
+
+Setting cross-validation for training the model
+```{r cv}
+# Setting crossvalidation for bagging, boosting and random forest
+trainCV = trainControl(method = "cv",number = 10)
+```
+
+# Decision Tree
+Implementing decision trees gives 57.84% accuracy with 95% confidence interval as (56.57, 59.11). Decision tree are not able to classify classe A,C and D properly
+```{r tree}
+## Decision Trees
+# Creating decision trees in inTrain 
+set.seed(123)
+model_trees = train(classe ~ .,method="rpart",data=inTrain,trControl = trainCV)
+rpart.plot(model_trees$finalModel)
+# predicting with decision trees
+pred_trees = predict(model_trees,newdata = inTest)
+cm1 = confusionMatrix(pred_trees,inTest$classe)
+cm1
+```
+
+
+# Bagging
+Implementing decision trees gives 99.86% accuracy with 95% confidence interval as (99.73, 99.94). Decision tree are not able to classify classe A,C and D properly
+```{r bagging}
+## Bagging
+# Creating bagging in inTrain 
+set.seed(123)
+model_bagging = train(classe ~ .,method = "treebag",data = inTrain,trControl = trainCV)
+# predicting with decision trees
+pred_bagging = predict(model_bagging,newdata = inTest)
+cm2 = confusionMatrix(pred_bagging,inTest$classe)
+cm2
+```
+
+
+# Random Forest
+Implementing decision trees gives 99.92% accuracy with 95% confidence interval as (99.80, 99.97). Decision tree are not able to classify classe A,C and D properly
+```{r rf}
+## Random forest
+# Creating random forest in inTrain 
+set.seed(123)
+model_rf = train(classe ~ .,method = "rf",data = inTrain,trControl = trainCV)
+# predicting with decision trees
+pred_rf = predict(model_rf,newdata = inTest)
+cm3 = confusionMatrix(pred_rf,inTest$classe)
+cm3
+```
+
+
+# Boosting
+Implementing decision trees gives 99.71% accuracy with 95% confidence interval as (99.54, 99.83). Decision tree are not able to classify classe A,C and D properly
+```{r boosting1,results = "hide"}
+## Boosting
+# Creating boosting in inTrain 
+set.seed(123)
+model_gbm = train(classe ~ .,method = "gbm",data = inTrain,trControl = trainCV)
+```
+```{r boosting2}
+# predicting with decision trees
+pred_gbm = predict(model_gbm,newdata = inTest)
+cm4 = confusionMatrix(pred_gbm,inTest$classe)
+cm4
+```
+
+
+# Choosing the best model
+Comparing the accuracy of all the four model on cross validated dataset, the accuracy of the Decision tree model is very less compared to other models. While the rest three models are very close, accuracy > 99%. Using sensitivity and specificity for each classe as the final measure to select between the three models, Random forest comes out as the best model.
+
+```{r model_selection_1}
+accuracy = data.frame(DecisionTree = cm1$overall[1],Bagging = cm2$overall[1],
+                      RandomForest = cm3$overall[1],Boosting = cm4$overall[1])
+accuracy
+par(mfrow=c(2,2))
+plot(cm1$byClass, main="Decision Tree", xlim=c(0, 1), ylim=c(0, 1))
+text(cm1$byClass[,1], cm1$byClass[,2], labels=LETTERS[1:5], cex= 0.8)
+plot(cm2$byClass, main="Random Forest", xlim=c(0.9, 1),ylim=c(0.9, 1))
+text(cm2$byClass[,1], cm2$byClass[,2], labels=LETTERS[1:5], cex= 0.8)
+plot(cm3$byClass, main="Boosting", xlim=c(0.9, 1),ylim=c(0.9, 1))
+text(cm3$byClass[,1], cm3$byClass[,2], labels=LETTERS[1:5], cex= 0.8)
+plot(cm4$byClass, main="Bagging", xlim=c(0.9, 1), ylim=c(0.9, 1))
+text(cm4$byClass[,1], cm4$byClass[,2], labels=LETTERS[1:5], cex= 0.8)
+```
+
+## RESULTS
+Using Random forest, predicting on the final test dataset
+```{r final}
+# Random forest is choosen
+# predicting for final test set
+pred_final = predict(model_rf,newdata = testing)
+pred_final
+```
+
+
